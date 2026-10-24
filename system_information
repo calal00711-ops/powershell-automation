@@ -1,0 +1,85 @@
+# ============================================
+# System Information Collection Script
+# Outputs JSON for Website/API Consumption
+# ============================================
+
+$SystemInfo = [PSCustomObject]@{
+
+    ComputerName = $env:COMPUTERNAME
+
+    Timestamp = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+
+    OperatingSystem = (Get-CimInstance Win32_OperatingSystem).Caption
+
+    OSVersion = (Get-CimInstance Win32_OperatingSystem).Version
+
+    UptimeDays = :Round(
+        ((Get-Date) -
+        (Get-CimInstance Win32_OperatingSystem).LastBootUpTime).TotalDays,
+        2
+    )
+
+    CPU = (Get-CimInstance Win32_Processor).Name
+
+    Cores = (Get-CimInstance Win32_Processor).NumberOfCores
+
+    LogicalProcessors = (Get-CimInstance Win32_Processor).NumberOfLogicalProcessors
+
+    TotalRAM_GB = :Round(
+        (Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB,
+        2
+    )
+
+    MemoryUsed_GB = :Round(
+        ((Get-CimInstance Win32_OperatingSystem).TotalVisibleMemorySize -
+        (Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory) / 1MB,
+        2
+    )
+
+    DiskInfo = Get-CimInstance Win32_LogicalDisk |
+    Where-Object { $_.DriveType -eq 3 } |
+    Select-Object DeviceID,
+        @{Name="SizeGB";Expression={:Round($_.Size / 1GB,2)}},
+        @{Name="FreeGB";Expression={:Round($_.FreeSpace / 1GB,2)}}
+
+    IPAddresses = (
+        Get-NetIPAddress -AddressFamily IPv4 |
+        Where-Object {
+            $_.IPAddress -notlike "169.254*" -and
+            $_.IPAddress -ne "127.0.0.1"
+        }
+    ).IPAddress
+
+    PublicIP = try {
+        (Invoke-RestMethod -Uri "https://api.ipify.org?format=json").ip
+    }
+    catch {
+        "Unavailable"
+    }
+
+    RunningProcesses = (
+        Get-Process |
+        Sort-Object CPU -Descending |
+        Select-Object -First 10 Name, Id, CPU
+    )
+
+    ServicesRunning = (
+        Get-Service |
+        Where-Object {$_.Status -eq "Running"} |
+        Measure-Object
+    ).Count
+}
+
+# Convert to JSON
+$JsonOutput = $SystemInfo | ConvertTo-Json -Depth 5
+
+# Save locally
+$OutputFile = "C:\SystemInfo\systeminfo.json"
+
+if (!(Test-Path "C:\SystemInfo")) {
+    New-Item -ItemType Directory -Path "C:\SystemInfo" | Out-Null
+}
+
+$JsonOutput | Set-Content $OutputFile
+
+Write-Host "System information exported to $OutputFile"
