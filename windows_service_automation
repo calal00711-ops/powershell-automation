@@ -1,0 +1,71 @@
+# ============================================
+# Windows Service Automation Script
+# ============================================
+
+# Services to monitor
+$CriticalServices = @(
+    "Spooler",      # Print Spooler
+    "wuauserv",     # Windows Update
+    "BITS",         # Background Intelligent Transfer Service
+    "WinRM"         # Windows Remote Management
+)
+
+$Report = @()
+
+foreach ($ServiceName in $CriticalServices) {
+
+    try {
+        $Service = Get-Service -Name $ServiceName -ErrorAction Stop
+
+        $StatusBefore = $Service.Status
+
+        if ($Service.Status -ne "Running") {
+
+            Start-Service -Name $ServiceName
+            Start-Sleep -Seconds 5
+
+            $Service.Refresh()
+
+            $ActionTaken = "Service Started"
+            $StatusAfter = $Service.Status
+        }
+        else {
+            $ActionTaken = "No Action Required"
+            $StatusAfter = $Service.Status
+        }
+
+        $Report += [PSCustomObject]@{
+            ServiceName = $Service.DisplayName
+            ServiceID   = $Service.Name
+            BeforeState = $StatusBefore
+            AfterState  = $StatusAfter
+            Action      = $ActionTaken
+            Timestamp   = Get-Date
+        }
+    }
+    catch {
+        $Report += [PSCustomObject]@{
+            ServiceName = $ServiceName
+            ServiceID   = $ServiceName
+            BeforeState = "Unknown"
+            AfterState  = "Failed"
+            Action      = $_.Exception.Message
+            Timestamp   = Get-Date
+        }
+    }
+}
+
+# Create Output Directory
+$OutputPath = "C:\ServiceReports"
+
+if (!(Test-Path $OutputPath)) {
+    New-Item -ItemType Directory -Path $OutputPath | Out-Null
+}
+
+# Save Report as JSON
+$ReportFile = "$OutputPath\ServiceReport.json"
+
+$Report | ConvertTo-Json -Depth 3 |
+Set-Content $ReportFile
+
+Write-Host "Service report saved to $ReportFile"
