@@ -1,0 +1,83 @@
+# ============================================
+# Automated System Maintenance Framework
+# ============================================
+
+$LogPath = "C:\AutomationReports"
+
+if (!(Test-Path $LogPath)) {
+    New-Item -ItemType Directory -Path $LogPath | Out-Null
+}
+
+$Report = [PSCustomObject]@{
+    ComputerName = $env:COMPUTERNAME
+    Timestamp    = Get-Date
+    Tasks        = @()
+}
+
+# Task 1 - Disk Cleanup
+try {
+    Remove-Item "$env:TEMP\*" -Recurse -Force -ErrorAction SilentlyContinue
+
+    $Report.Tasks += [PSCustomObject]@{
+        Task   = "Temporary File Cleanup"
+        Status = "Completed"
+    }
+}
+catch {
+    $Report.Tasks += [PSCustomObject]@{
+        Task   = "Temporary File Cleanup"
+        Status = "Failed"
+        Error  = $_.Exception.Message
+    }
+}
+
+# Task 2 - Service Health Check
+$Services = @("BITS","wuauserv","WinRM")
+
+foreach ($ServiceName in $Services) {
+
+    $Service = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+
+    if ($Service -and $Service.Status -ne "Running") {
+
+        Start-Service $ServiceName
+
+        $Report.Tasks += [PSCustomObject]@{
+            Task   = "Service Recovery"
+            Target = $ServiceName
+            Status = "Started"
+        }
+    }
+}
+
+# Task 3 - Event Log Collection
+$Errors = Get-WinEvent -LogName System -MaxEvents 50 |
+Where-Object { $_.LevelDisplayName -eq "Error" }
+
+$Report.Tasks += [PSCustomObject]@{
+    Task        = "Event Log Review"
+    ErrorCount  = $Errors.Count
+    Status      = "Completed"
+}
+
+# Task 4 - Disk Space Monitoring
+Get-CimInstance Win32_LogicalDisk |
+Where-Object { $_.DriveType -eq 3 } |
+ForEach-Object {
+
+    $PercentFree = [math]::Round(($_.FreeSpace / $_.Size) * 100,2)
+
+    $Report.Tasks += [PSCustomObject]@{
+        Task        = "Storage Check"
+        Drive       = $_.DeviceID
+        PercentFree = $PercentFree
+        Status      = if ($PercentFree -lt 15) {"Warning"} else {"Healthy"}
+    }
+}
+
+# Export Report
+$Report |
+ConvertTo-Json -Depth 5 |
+Set-Content "$LogPath\AutomationReport.json"
+
+Write-Host "Automation Completed Successfully"
