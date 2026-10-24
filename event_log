@@ -1,0 +1,69 @@
+# ============================================
+# Windows Event Log Monitoring Automation
+# ============================================
+
+$HoursToReview = 24
+$StartTime = (Get-Date).AddHours(-$HoursToReview)
+
+# Logs to Monitor
+$LogNames = @(
+    "System",
+    "Application",
+    "Security"
+)
+
+$EventReport = @()
+
+foreach ($Log in $LogNames) {
+
+    try {
+
+        $Events = Get-WinEvent -FilterHashtable @{
+            LogName   = $Log
+            StartTime = $StartTime
+            Level     = 1,2 # Critical and Error
+        } -ErrorAction Stop
+
+        foreach ($Event in $Events) {
+
+            $EventReport += [PSCustomObject]@{
+                LogName      = $Event.LogName
+                EventID      = $Event.Id
+                Level        = $Event.LevelDisplayName
+                Provider     = $Event.ProviderName
+                TimeCreated  = $Event.TimeCreated
+                MachineName  = $Event.MachineName
+                Message      = $Event.Message
+            }
+        }
+    }
+    catch {
+        Write-Warning "Unable to read log: $Log"
+    }
+}
+
+# Summary Statistics
+$Summary = [PSCustomObject]@{
+    ComputerName = $env:COMPUTERNAME
+    Timestamp    = Get-Date
+    TotalEvents  = $EventReport.Count
+    Criticals    = ($EventReport | Where-Object {$_.Level -eq "Critical"}).Count
+    Errors       = ($EventReport | Where-Object {$_.Level -eq "Error"}).Count
+    Events       = $EventReport
+}
+
+# Create Output Directory
+$OutputPath = "C:\EventLogReports"
+
+if (!(Test-Path $OutputPath)) {
+    New-Item -ItemType Directory -Path $OutputPath | Out-Null
+}
+
+# Save JSON Report
+$ReportFile = "$OutputPath\EventLogReport.json"
+
+$Summary |
+ConvertTo-Json -Depth 5 |
+Set-Content $ReportFile
+
+Write-Host "Event Log Report saved to $ReportFile"
